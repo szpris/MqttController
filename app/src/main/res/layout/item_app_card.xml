@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 单个 App 控制卡片（被 activity_main.xml 通过 include 引用）
+     注意：include 后必须有独立 id，内部按钮 id 使用 ViewBinding merge 方案。
+     由于 include 方案在 ViewBinding 里无法直接访问内部 id，
+     改用 LinearLayout 直接内嵌，靠外部 Activity 通过 findViewById 查找带序号的 id。
+-->
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    app:cardElevation="2dp"
+    app:cardCornerRadius="6dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/tvAppName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="app"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/purple_700"
+            android:layout_marginBottom="4dp" />
+
+        <Button
+            android:id="@+id/btnStartApp"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:text="START"
+            android:textSize="11sp"
+            android:enabled="false"
+            android:backgroundTint="#4CAF50"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="3dp" />
+
+        <Button
+            android:id="@+id/btnStopApp"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:text="STOP"
+            android:textSize="11sp"
+            android:enabled="false"
+            android:backgroundTint="#F44336"
+            android:textColor="#FFFFFF" />
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>
