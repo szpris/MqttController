@@ -21,30 +21,29 @@ class MqttService : Service() {
     companion object {
         // 广播 Action
         const val ACTION_STATUS = "cn.nasi.mqttcontroller.STATUS"
-        const val ACTION_LOG = "cn.nasi.mqttcontroller.LOG"
+        const val ACTION_LOG    = "cn.nasi.mqttcontroller.LOG"
 
         // 指令 Action
-        const val CMD_CONNECT = "cn.nasi.mqttcontroller.CONNECT"
-        const val CMD_DISCONNECT = "cn.nasi.mqttcontroller.DISCONNECT"
-        const val CMD_PUBLISH = "cn.nasi.mqttcontroller.PUBLISH"
+        const val CMD_CONNECT      = "cn.nasi.mqttcontroller.CONNECT"
+        const val CMD_DISCONNECT   = "cn.nasi.mqttcontroller.DISCONNECT"
+        const val CMD_PUBLISH      = "cn.nasi.mqttcontroller.PUBLISH"
         const val CMD_QUERY_STATUS = "cn.nasi.mqttcontroller.QUERY_STATUS"
 
         // Extra 键
-        const val EXTRA_BROKER = "broker"
-        const val EXTRA_PORT = "port"
+        const val EXTRA_BROKER    = "broker"
+        const val EXTRA_PORT      = "port"
         const val EXTRA_CLIENT_ID = "client_id"
-        const val EXTRA_TOPIC = "topic"
-        const val EXTRA_PAYLOAD = "payload"
-        const val EXTRA_STATUS = "status"
+        const val EXTRA_APP_ID    = "app_id"   // 目标 appId（如 app1）
+        const val EXTRA_PAYLOAD   = "payload"
+        const val EXTRA_STATUS    = "status"
         const val EXTRA_CONNECTED = "connected"
-        const val EXTRA_MESSAGE = "message"
+        const val EXTRA_MESSAGE   = "message"
 
-        private const val CHANNEL_ID = "mqtt_service_channel"
-        private const val NOTIFICATION_ID = 1001
+        private const val CHANNEL_ID       = "mqtt_service_channel"
+        private const val NOTIFICATION_ID  = 1001
     }
 
     private var mqttClient: MqttClient? = null
-    private var currentTopic: String = MqttConfig.TOPIC
     private var isConnected = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -58,17 +57,16 @@ class MqttService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             CMD_CONNECT -> {
-                val broker = intent.getStringExtra(EXTRA_BROKER) ?: MqttConfig.BROKER
-                val port = intent.getIntExtra(EXTRA_PORT, MqttConfig.PORT)
-                val clientId = intent.getStringExtra(EXTRA_CLIENT_ID) ?: MqttConfig.CLIENT_ID
-                val topic = intent.getStringExtra(EXTRA_TOPIC) ?: MqttConfig.TOPIC
-                currentTopic = topic
-                connectMqtt(broker, port, clientId, topic)
+                val broker   = intent.getStringExtra(EXTRA_BROKER)    ?: MqttConfig.BROKER
+                val port     = intent.getIntExtra(EXTRA_PORT,           MqttConfig.PORT)
+                val clientId = intent.getStringExtra(EXTRA_CLIENT_ID)  ?: MqttConfig.CLIENT_ID
+                connectMqtt(broker, port, clientId)
             }
             CMD_DISCONNECT -> disconnectMqtt()
             CMD_PUBLISH -> {
+                val appId   = intent.getStringExtra(EXTRA_APP_ID)  ?: return START_NOT_STICKY
                 val payload = intent.getStringExtra(EXTRA_PAYLOAD) ?: return START_NOT_STICKY
-                publishMessage(payload)
+                publishMessage(appId, payload)
             }
             CMD_QUERY_STATUS -> {
                 broadcastStatus(if (isConnected) "已连接" else "未连接", isConnected)
@@ -77,7 +75,7 @@ class MqttService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun connectMqtt(broker: String, port: Int, clientId: String, topic: String) {
+    private fun connectMqtt(broker: String, port: Int, clientId: String) {
         Thread {
             try {
                 broadcastLog("正在连接 $broker:$port ...")
@@ -91,15 +89,10 @@ class MqttService : Service() {
                         broadcastLog("连接已断开: ${cause?.message}")
                         updateNotification("MQTT 已断开")
                     }
-
                     override fun messageArrived(topic: String, message: MqttMessage) {
-                        val payload = String(message.payload)
-                        broadcastLog("收到消息 [$topic]: $payload")
+                        broadcastLog("收到消息 [$topic]: ${String(message.payload)}")
                     }
-
-                    override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                        broadcastLog("消息发送完成")
-                    }
+                    override fun deliveryComplete(token: IMqttDeliveryToken?) {}
                 })
 
                 val opts = MqttConnectOptions().apply {
@@ -108,10 +101,9 @@ class MqttService : Service() {
                     keepAliveInterval = 30
                 }
                 mqttClient?.connect(opts)
-                mqttClient?.subscribe(topic)
                 isConnected = true
                 broadcastStatus("已连接 $broker:$port", true)
-                broadcastLog("连接成功！已订阅主题: $topic")
+                broadcastLog("连接成功！")
                 updateNotification("已连接 $broker")
             } catch (e: Exception) {
                 isConnected = false
@@ -136,48 +128,48 @@ class MqttService : Service() {
         }.start()
     }
 
-    private fun publishMessage(payload: String) {
+    private fun publishMessage(appId: String, payload: String) {
         if (!isConnected || mqttClient == null) {
-            broadcastLog("未连接，无法发送: $payload")
+            broadcastLog("未连接，无法发送")
             return
         }
         Thread {
             try {
-                val message = MqttMessage(payload.toByteArray())
-                message.qos = 1
-                mqttClient?.publish(currentTopic, message)
-                broadcastLog("已发布 [$currentTopic]: $payload")
+                val topic   = MqttConfig.getTopicForApp(appId)
+                val message = MqttMessage(payload.toByteArray()).apply { qos = 1 }
+                mqttClient?.publish(topic, message)
+                broadcastLog("[$appId] $payload → $topic")
             } catch (e: Exception) {
                 broadcastLog("发送失败: ${e.message}")
             }
         }.start()
     }
 
+    // ---- 广播工具 ----
+
     private fun broadcastStatus(status: String, connected: Boolean) {
-        val intent = Intent(ACTION_STATUS).apply {
-            putExtra(EXTRA_STATUS, status)
-            putExtra(EXTRA_CONNECTED, connected)
-        }
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(
+            Intent(ACTION_STATUS).apply {
+                putExtra(EXTRA_STATUS, status)
+                putExtra(EXTRA_CONNECTED, connected)
+            }
+        )
     }
 
     private fun broadcastLog(msg: String) {
-        val intent = Intent(ACTION_LOG).apply {
-            putExtra(EXTRA_MESSAGE, msg)
-        }
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(
+            Intent(ACTION_LOG).apply { putExtra(EXTRA_MESSAGE, msg) }
+        )
     }
 
-    // 通知相关
+    // ---- 通知 ----
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID, "MQTT 服务",
             NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "MQTT 后台连接通知"
-        }
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(channel)
+        ).apply { description = "MQTT 后台连接通知" }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun buildNotification(text: String): Notification {
@@ -196,8 +188,8 @@ class MqttService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, buildNotification(text))
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     override fun onDestroy() {
